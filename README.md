@@ -186,10 +186,9 @@ security@pesa.co. Do not open a public issue.
 
 1. Set the version in `PesaCheckout.podspec`. Move the Unreleased notes in
    `CHANGELOG.md`.
-2. Commit on `main` with an SSH key listed in `.github/allowed_signers`.
-   Then `git tag vX.Y.Z && git push origin vX.Y.Z`. Only repository admins
-   can push a `v*` tag.
-3. `release.yml` verifies that the tagged commit is signed by a maintainer, builds and tests on macOS, lints
+2. Tag with an SSH key listed in `.github/allowed_signers`:
+   `git tag -s vX.Y.Z -m "vX.Y.Z"`. Push the tag.
+3. `release.yml` verifies the tag signature, builds and tests on macOS, lints
    and pushes the podspec to CocoaPods trunk, and creates a GitHub release.
    SPM resolves the tag directly.
 

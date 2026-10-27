@@ -1,6 +1,6 @@
 name: Release
 
-# A tag vX.Y.Z on a maintainer-signed commit is the Swift Package Manager release (SPM resolves the
+# A signed tag vX.Y.Z is the Swift Package Manager release (SPM resolves the
 # tag directly) and pushes the pod to CocoaPods trunk. Needs the repository
 # secret COCOAPODS_TRUNK_TOKEN (from `pod trunk register`).
 
@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify the tagged commit is signed by a maintainer
+      - name: Verify the tag signature
         run: .github/verify-tag.sh "${GITHUB_REF_NAME}"
       - name: Check the tag matches the podspec
         run: |

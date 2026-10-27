@@ -15,7 +15,6 @@ The README section "How the SDK keeps card data safe" describes it.
 
 ## Verify a release
 
-Each release is a `v*` tag on a commit signed by a maintainer. GitHub
-Actions builds and publishes it. The workflow refuses a tag whose commit
-is not signed by a key in `.github/allowed_signers`. Verify a release
-before you depend on it.
+Each release is a tag signed by a maintainer. GitHub Actions builds and
+publishes it. The workflow refuses a tag that is not signed by a key in
+`.github/allowed_signers`. Verify a release before you depend on it.

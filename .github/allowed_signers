@@ -1,4 +1,4 @@
 # SSH allowed signers for release tags. One line per maintainer:
 # <email> namespaces="git" <key type> <public key>
-# The release workflow refuses a tag whose commit is not signed by a key listed here.
+# The release workflow refuses any tag not signed by a key listed here.
 developer@pesapeer.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBSX704S1vnCjdFC75ouqNWChGjUN65adOlfkOe0LxlE
