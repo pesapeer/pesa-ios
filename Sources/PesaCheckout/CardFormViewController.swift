@@ -29,11 +29,11 @@ public final class PesaCardFormViewController: UIViewController {
     private var completeObservation: Any?
 
     public init(intentId: String, clientSecret: String, needsEmail: Bool = false,
-                checkout: PesaCheckout = .shared, theme: PesaCardTheme = .pesa,
+                checkout: PesaCheckout? = nil, theme: PesaCardTheme = .pesa,
                 showsPayButton: Bool = true, payTitle: String = "Pay") {
         self.intentId = intentId
         self.clientSecret = clientSecret
-        self.checkout = checkout
+        self.checkout = checkout ?? .shared
         self.theme = theme
         self.showsPayButton = showsPayButton
         self.payTitle = payTitle
