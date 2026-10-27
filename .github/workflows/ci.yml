@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: .github/check-commit-emails.sh
+      - run: swift --version
+      - run: swift build
+      - run: swift test
+      - name: Compile the UIKit target for iOS
+        run: >-
+          xcodebuild -scheme PesaCheckout
+          -destination 'generic/platform=iOS Simulator'
+          -skipPackagePluginValidation build
