@@ -129,18 +129,18 @@ public struct PesaCardForm: View {
                 field("Expiry", .expiry) {
                     TextField("MM / YY", text: $state.expiry)
                         .keyboardType(.numberPad)
-                        .textContentType(.creditCardExpiration)
+                        .textContentType(CardContentType.expiration)
                         .focused($focus, equals: .expiry)
                 }
                 field(state.brand == .amex ? "CID" : "CVV", .securityCode) {
                     SecureCopyTextField(text: $state.securityCode, placeholder: state.brand == .amex ? "1234" : "123",
-                                        contentType: .creditCardSecurityCode, keyboard: .numberPad, secure: true)
+                                        contentType: CardContentType.securityCode, keyboard: .numberPad, secure: true)
                         .focused($focus, equals: .securityCode)
                 }
             }
             field("Name on card", .holderName) {
                 TextField("As printed", text: $state.holderName)
-                    .textContentType(.creditCardName)
+                    .textContentType(CardContentType.name)
                     .disableAutocorrection(true)
                     .textInputAutocapitalization(.words)
                     .focused($focus, equals: .holderName)
@@ -215,12 +215,28 @@ public struct PesaPayButton: View {
     }
 }
 
+/// The card content types that exist only from iOS 17; nil below that.
+enum CardContentType {
+    static var expiration: UITextContentType? {
+        if #available(iOS 17, *) { return .creditCardExpiration }
+        return nil
+    }
+    static var securityCode: UITextContentType? {
+        if #available(iOS 17, *) { return .creditCardSecurityCode }
+        return nil
+    }
+    static var name: UITextContentType? {
+        if #available(iOS 17, *) { return .creditCardName }
+        return nil
+    }
+}
+
 /// A UITextField with copy and cut removed. Paste stays: people paste card
 /// numbers from password managers.
 struct SecureCopyTextField: UIViewRepresentable {
     @Binding var text: String
     let placeholder: String
-    let contentType: UITextContentType
+    let contentType: UITextContentType?
     let keyboard: UIKeyboardType
     let secure: Bool
 
@@ -256,7 +272,7 @@ struct SecureCopyTextField: UIViewRepresentable {
 
 final class NoCopyTextField: UITextField {
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        if action == #selector(copy(_:)) || action == #selector(cut(_:)) || action == #selector(UIResponderStandardEditActions.share(_:)) {
+        if action == #selector(copy(_:)) || action == #selector(cut(_:)) {
             return false
         }
         return super.canPerformAction(action, withSender: sender)
