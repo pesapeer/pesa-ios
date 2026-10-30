@@ -30,13 +30,13 @@ use the same flow and the same error codes.
 ## Install
 
 Swift Package Manager: add `https://github.com/pesapeer/pesa-ios` from
-`v0.1.0`. Pick the `PesaCheckout` product. Pick `PesaCheckoutCore` for a
+`v0.2.0`. Pick the `PesaCheckout` product. Pick `PesaCheckoutCore` for a
 headless integration with your own UI.
 
 CocoaPods:
 
 ```ruby
-pod 'PesaCheckout', '~> 0.1'
+pod 'PesaCheckout', '~> 0.2'
 ```
 
 Requirements: iOS 15 or later, Swift 5.9 or later. No third-party
@@ -92,13 +92,70 @@ form.didMove(toParent: self)
 // PesaCardFormViewControllerDelegate: completeDidChange, didFinish, didFail
 ```
 
+## Saved cards
+
+A customer can keep a card for the next payment. Your server must set
+`customerReference` on the intent. Without it, the session offers no saved
+cards and ignores `saveCard`.
+
+The session tells the form what to show:
+
+- `canSaveCard`: the form may show the "Save this card" switch.
+- `savedCards`: the customer's cards, most recently used first. Each has
+  `brand`, `last4`, `expiry` (MM/YYYY) and `holderName`. The list is empty
+  when there are none.
+- `savedCardSecurityCode`: `.required`, `.optional` or `.never`. It tells
+  the form when to ask for the CVV again. An unknown value reads as
+  `.optional`.
+
+Make the form state from the session. `PesaCardForm` then shows the saved
+cards first and selects the first one. "Use another card" shows the card
+fields. The CVV field follows `savedCardSecurityCode`. The switch shows
+only when `canSaveCard` is true.
+
+```swift
+let form = PesaCardFormState(session: session)
+
+func pay() async throws -> CheckoutResult? {
+    let email = form.trimmedEmail
+    if let saved = form.selectedSavedCard {
+        let code = form.savedSecurityCodeBytes()
+        form.clear()
+        return try await PesaCheckout.shared.payWithSavedCard(
+            intentId: intentId, clientSecret: secret, token: saved.token, securityCode: code, email: email)
+    }
+    guard let card = form.details() else { return nil }
+    let saveCard = form.savesCard
+    form.clear()
+    return try await PesaCheckout.shared.pay(
+        intentId: intentId, clientSecret: secret, card: card, email: email, saveCard: saveCard)
+}
+```
+
+UIKit: pass `savedCards`, `savedCardSecurityCode` and `canSaveCard` to
+`PesaCardFormViewController`. Its `pay()` picks the saved card or the
+typed card.
+
+Rules:
+
+- The token is opaque. Do not log it, show it or put it in a URL.
+- The SDK sends the token and the CVV in the request body only.
+- The CVV is held in `SecretBytes`. The SDK wipes it after it encodes the
+  request.
+- The gateway keeps a card only after a successful charge. A decline
+  keeps nothing.
+- A refused token gives `invalidCard`. Ask the customer to choose another
+  card.
+- The 3-D Secure challenge and the result are the same as for a typed
+  card.
+
 ## Error codes
 
 `PesaCheckoutError.code` is one of:
 
 | Code | Meaning |
 |---|---|
-| `invalidCard` | The card failed local validation. |
+| `invalidCard` | The card failed local validation, or the checkout service refused the card or the saved card. |
 | `invalidRequest` | The checkout service refused the request. |
 | `notFound` | Unknown intent or wrong client secret. |
 | `attemptInProgress` | Another attempt is running on this intent. |

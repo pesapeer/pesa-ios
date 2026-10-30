@@ -91,16 +91,44 @@ public final class PesaCheckoutClient: Sendable {
         card.securityCode.withString { body["securityCode"] = $0 }
         if let email = email?.trimmingCharacters(in: .whitespaces), !email.isEmpty { body["email"] = email }
         if saveCard { body["saveCard"] = true }
+        var req = try cardRequest(intentId: intentId, clientSecret: clientSecret, body: body)
+        body.removeAll()
+        let first: CheckoutSession = try await decode(send(req))
+        req.httpBody = nil
+        return try await follow(intentId: intentId, clientSecret: clientSecret, first: first, openChallenge: openChallenge)
+    }
+
+    /// Charges one of the session's `savedCards` and follows it to an
+    /// outcome, as `payWithCard` does. Pass `securityCode` when
+    /// `savedCardSecurityCode` is `.required`, or when the payer typed one.
+    /// It is wiped once the request is encoded.
+    public func payWithSavedCard(intentId: String,
+                                 clientSecret: String,
+                                 token: String,
+                                 securityCode: SecretBytes? = nil,
+                                 email: String? = nil,
+                                 openChallenge: @escaping @Sendable (URL) async -> Bool) async throws -> CheckoutResult {
+        defer { securityCode?.wipe() }
+        var savedCard: [String: Any] = ["token": token]
+        if let securityCode, !securityCode.isEmpty { securityCode.withString { savedCard["securityCode"] = $0 } }
+        var body: [String: Any] = ["clientSecret": clientSecret, "savedCard": savedCard]
+        if let email = email?.trimmingCharacters(in: .whitespaces), !email.isEmpty { body["email"] = email }
+        var req = try cardRequest(intentId: intentId, clientSecret: clientSecret, body: body)
+        savedCard.removeAll()
+        body.removeAll()
+        let first: CheckoutSession = try await decode(send(req))
+        req.httpBody = nil
+        return try await follow(intentId: intentId, clientSecret: clientSecret, first: first, openChallenge: openChallenge)
+    }
+
+    private func cardRequest(intentId: String, clientSecret: String, body: [String: Any]) throws -> URLRequest {
         var req = URLRequest(url: url(intentId, "/card"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue(clientSecret, forHTTPHeaderField: "X-Client-Secret")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        body.removeAll()
-        let first: CheckoutSession = try await decode(send(req))
-        req.httpBody = nil
-        return try await follow(intentId: intentId, clientSecret: clientSecret, first: first, openChallenge: openChallenge)
+        return req
     }
 
     /// Apple Pay. Phase 2: the PassKit token goes to `POST /c/{intent}/wallet`.
@@ -177,7 +205,8 @@ public final class PesaCheckoutClient: Sendable {
             message = (e["message"] as? String) ?? message
             field = e["field"] as? String
         }
-        let cardFields: Set<String> = ["cardNumber", "expiryMonth", "expiryYear", "securityCode", "holderName", "email"]
+        let cardFields: Set<String> = ["cardNumber", "expiryMonth", "expiryYear", "securityCode", "holderName", "email",
+                                       "savedCard.token", "savedCard.securityCode"]
         let code: PesaCheckoutError.Code
         switch status {
         case 400, 422: code = field.map(cardFields.contains) == true ? .invalidCard : .invalidRequest
@@ -222,5 +251,5 @@ public final class URLSessionTransport: NSObject, CheckoutTransport, @unchecked 
 }
 
 public enum PesaCheckoutVersion {
-    public static let current = "0.1.0"
+    public static let current = "0.2.0"
 }

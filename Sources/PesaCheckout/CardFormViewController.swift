@@ -29,6 +29,8 @@ public final class PesaCardFormViewController: UIViewController {
     private var completeObservation: Any?
 
     public init(intentId: String, clientSecret: String, needsEmail: Bool = false,
+                savedCards: [SavedCard] = [], savedCardSecurityCode: SavedCardSecurityCode = .optional,
+                canSaveCard: Bool = false,
                 checkout: PesaCheckout? = nil, theme: PesaCardTheme = .pesa,
                 showsPayButton: Bool = true, payTitle: String = "Pay") {
         self.intentId = intentId
@@ -37,7 +39,8 @@ public final class PesaCardFormViewController: UIViewController {
         self.theme = theme
         self.showsPayButton = showsPayButton
         self.payTitle = payTitle
-        self.state = PesaCardFormState(needsEmail: needsEmail)
+        self.state = PesaCardFormState(needsEmail: needsEmail, savedCards: savedCards,
+                                       savedCardSecurityCode: savedCardSecurityCode, canSaveCard: canSaveCard)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -74,16 +77,32 @@ public final class PesaCardFormViewController: UIViewController {
         SecureScreenGuard.shared.release()
     }
 
-    /// Sends the card. Safe to call from your own button.
+    /// Sends the selected saved card or the typed card. Safe to call from
+    /// your own button.
     public func pay() {
-        guard !busy, let card = state.details() else { return }
-        busy = true
+        guard !busy, state.isComplete else { return }
         let email = state.trimmedEmail
+        let charge: @MainActor () async throws -> CheckoutResult
+        if let saved = state.selectedSavedCard {
+            let code = state.savedSecurityCodeBytes()
+            charge = {
+                try await self.checkout.payWithSavedCard(intentId: self.intentId, clientSecret: self.clientSecret, token: saved.token,
+                                                         securityCode: code, email: email, from: self)
+            }
+        } else {
+            guard let card = state.details() else { return }
+            let saveCard = state.savesCard
+            charge = {
+                try await self.checkout.pay(intentId: self.intentId, clientSecret: self.clientSecret, card: card, email: email,
+                                            saveCard: saveCard, from: self)
+            }
+        }
+        busy = true
         state.clear()
         Task {
             defer { busy = false }
             do {
-                let result = try await checkout.pay(intentId: intentId, clientSecret: clientSecret, card: card, email: email, from: self)
+                let result = try await charge()
                 delegate?.cardForm(self, didFinish: result)
             } catch let e as PesaCheckoutError {
                 delegate?.cardForm(self, didFail: e)

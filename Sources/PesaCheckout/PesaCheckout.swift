@@ -39,6 +39,22 @@ public final class PesaCheckout {
         }
     }
 
+    /// Charges a saved card from the session and follows it to an outcome,
+    /// as `pay(intentId:clientSecret:card:)` does.
+    public func payWithSavedCard(intentId: String,
+                                 clientSecret: String,
+                                 token: String,
+                                 securityCode: SecretBytes? = nil,
+                                 email: String? = nil,
+                                 from presenter: UIViewController? = nil) async throws -> CheckoutResult {
+        let opener = challenge
+        defer { Task { @MainActor in opener.dismiss() } }
+        return try await client.payWithSavedCard(intentId: intentId, clientSecret: clientSecret, token: token,
+                                                 securityCode: securityCode, email: email) { url in
+            await opener.open(url, from: presenter)
+        }
+    }
+
     /// Call from `onOpenURL` / `scene(_:openURLContexts:)` /
     /// `application(_:continue:)` with the universal link the checkout
     /// return page sent the browser to. Dismisses the challenge sheet; the

@@ -28,8 +28,15 @@ public struct PesaCardTheme: Sendable {
 
 /// What the form holds. Observe `isComplete` for the pay button; call
 /// `details()` to hand the card to the client, then `clear()`.
+///
+/// With `savedCards`, the first one is selected. While `selectedSavedCard`
+/// is set, pay with its token and `savedSecurityCodeBytes()`; otherwise pay
+/// with `details()` and `savesCard`.
 @MainActor
 public final class PesaCardFormState: ObservableObject {
+    @Published public private(set) var selectedSavedCard: SavedCard?
+    @Published public var savedSecurityCode = "" { didSet { savedSecurityCode = String(savedSecurityCode.filter(\.isNumber).prefix(4)) } }
+    @Published public var saveCard = false
     @Published public var number = "" { didSet { number = Self.groupNumber(number) } }
     @Published public var expiry = "" { didSet { expiry = Self.groupExpiry(expiry) } }
     @Published public var securityCode = "" { didSet { securityCode = String(securityCode.filter(\.isNumber).prefix(4)) } }
@@ -38,19 +45,52 @@ public final class PesaCardFormState: ObservableObject {
     @Published public var touched: Set<Field> = []
 
     public let needsEmail: Bool
+    public let savedCards: [SavedCard]
+    public let savedCardSecurityCode: SavedCardSecurityCode
+    public let canSaveCard: Bool
     public let now: () -> Date
 
     public enum Field: Hashable, Sendable { case number, expiry, securityCode, holderName, email }
 
-    public init(needsEmail: Bool = false, now: @escaping () -> Date = { Date() }) {
+    public init(needsEmail: Bool = false,
+                savedCards: [SavedCard] = [],
+                savedCardSecurityCode: SavedCardSecurityCode = .optional,
+                canSaveCard: Bool = false,
+                now: @escaping () -> Date = { Date() }) {
         self.needsEmail = needsEmail
+        self.savedCards = savedCards
+        self.savedCardSecurityCode = savedCardSecurityCode
+        self.canSaveCard = canSaveCard
         self.now = now
+        self.selectedSavedCard = savedCards.first
+    }
+
+    public convenience init(session: CheckoutSession, now: @escaping () -> Date = { Date() }) {
+        self.init(needsEmail: session.needsEmail, savedCards: session.savedCards,
+                  savedCardSecurityCode: session.savedCardSecurityCode, canSaveCard: session.canSaveCard, now: now)
     }
 
     public var digits: String { number.filter(\.isNumber) }
     public var brand: CardBrand { CardBrand.detect(digits) }
+    public var usesSavedCard: Bool { selectedSavedCard != nil }
+    public var asksSavedSecurityCode: Bool { usesSavedCard && savedCardSecurityCode != .never }
+    public var savesCard: Bool { canSaveCard && saveCard && !usesSavedCard }
+
+    /// Selects a saved card, or nil for "Use another card".
+    public func select(_ card: SavedCard?) {
+        selectedSavedCard = card
+        savedSecurityCode = ""
+        touched = []
+    }
 
     public func error(for field: Field) -> String? {
+        if let saved = selectedSavedCard {
+            switch field {
+            case .securityCode: return savedSecurityCodeError(brand: saved.cardBrand)
+            case .email: return needsEmail ? CardValidation.email(email) : nil
+            case .number, .expiry, .holderName: return nil
+            }
+        }
         switch field {
         case .number: return CardValidation.number(digits)
         case .expiry: return CardValidation.expiry(expiry, now: now())
@@ -58,6 +98,12 @@ public final class PesaCardFormState: ObservableObject {
         case .holderName: return CardValidation.holderName(holderName)
         case .email: return needsEmail ? CardValidation.email(email) : nil
         }
+    }
+
+    private func savedSecurityCodeError(brand: CardBrand) -> String? {
+        if !asksSavedSecurityCode { return nil }
+        if savedCardSecurityCode == .optional && savedSecurityCode.isEmpty { return nil }
+        return CardValidation.securityCode(savedSecurityCode, brand: brand)
     }
 
     /// The error to show: only once the field was left.
@@ -71,8 +117,14 @@ public final class PesaCardFormState: ObservableObject {
 
     /// The card as typed. Nil while incomplete.
     public func details() -> CardDetails? {
-        guard isComplete, let exp = CardExpiry.parse(expiry) else { return nil }
+        guard !usesSavedCard, isComplete, let exp = CardExpiry.parse(expiry) else { return nil }
         return CardDetails(number: digits, expiry: exp, securityCode: securityCode, holderName: holderName)
+    }
+
+    /// The saved card's security code to send. Nil when there is none to send.
+    public func savedSecurityCodeBytes() -> SecretBytes? {
+        guard asksSavedSecurityCode, !savedSecurityCode.isEmpty else { return nil }
+        return SecretBytes(savedSecurityCode)
     }
 
     public var trimmedEmail: String? {
@@ -84,8 +136,10 @@ public final class PesaCardFormState: ObservableObject {
     public func clear() {
         number = String(repeating: "0", count: number.count)
         securityCode = String(repeating: "0", count: securityCode.count)
+        savedSecurityCode = String(repeating: "0", count: savedSecurityCode.count)
         number = ""
         securityCode = ""
+        savedSecurityCode = ""
         expiry = ""
         touched = []
     }
@@ -117,33 +171,19 @@ public struct PesaCardForm: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            field("Card number", .number) {
-                HStack {
-                    SecureCopyTextField(text: $state.number, placeholder: "1234 5678 9012 3456",
-                                        contentType: .creditCardNumber, keyboard: .numberPad, secure: false)
-                        .focused($focus, equals: .number)
-                    Text(state.brand.label).font(.caption).foregroundColor(.secondary)
-                }
+            if !state.savedCards.isEmpty {
+                savedCardPicker
             }
-            HStack(alignment: .top, spacing: 12) {
-                field("Expiry", .expiry) {
-                    TextField("MM / YY", text: $state.expiry)
-                        .keyboardType(.numberPad)
-                        .textContentType(CardContentType.expiration)
-                        .focused($focus, equals: .expiry)
+            if let saved = state.selectedSavedCard {
+                if state.asksSavedSecurityCode {
+                    field(securityCodeLabel(saved.cardBrand), .securityCode) {
+                        SecureCopyTextField(text: $state.savedSecurityCode, placeholder: saved.cardBrand == .amex ? "1234" : "123",
+                                            contentType: CardContentType.securityCode, keyboard: .numberPad, secure: true)
+                            .focused($focus, equals: .securityCode)
+                    }
                 }
-                field(state.brand == .amex ? "CID" : "CVV", .securityCode) {
-                    SecureCopyTextField(text: $state.securityCode, placeholder: state.brand == .amex ? "1234" : "123",
-                                        contentType: CardContentType.securityCode, keyboard: .numberPad, secure: true)
-                        .focused($focus, equals: .securityCode)
-                }
-            }
-            field("Name on card", .holderName) {
-                TextField("As printed", text: $state.holderName)
-                    .textContentType(CardContentType.name)
-                    .disableAutocorrection(true)
-                    .textInputAutocapitalization(.words)
-                    .focused($focus, equals: .holderName)
+            } else {
+                newCardFields
             }
             if state.needsEmail {
                 field("Email for your receipt", .email) {
@@ -160,6 +200,78 @@ public struct PesaCardForm: View {
             if let left = lastFocus, left != newValue { state.touched.insert(left) }
             lastFocus = newValue
         }
+    }
+
+    @ViewBuilder private var newCardFields: some View {
+        field("Card number", .number) {
+            HStack {
+                SecureCopyTextField(text: $state.number, placeholder: "1234 5678 9012 3456",
+                                    contentType: .creditCardNumber, keyboard: .numberPad, secure: false)
+                    .focused($focus, equals: .number)
+                Text(state.brand.label).font(.caption).foregroundColor(.secondary)
+            }
+        }
+        HStack(alignment: .top, spacing: 12) {
+            field("Expiry", .expiry) {
+                TextField("MM / YY", text: $state.expiry)
+                    .keyboardType(.numberPad)
+                    .textContentType(CardContentType.expiration)
+                    .focused($focus, equals: .expiry)
+            }
+            field(state.brand == .amex ? "CID" : "CVV", .securityCode) {
+                SecureCopyTextField(text: $state.securityCode, placeholder: state.brand == .amex ? "1234" : "123",
+                                    contentType: CardContentType.securityCode, keyboard: .numberPad, secure: true)
+                    .focused($focus, equals: .securityCode)
+            }
+        }
+        field("Name on card", .holderName) {
+            TextField("As printed", text: $state.holderName)
+                .textContentType(CardContentType.name)
+                .disableAutocorrection(true)
+                .textInputAutocapitalization(.words)
+                .focused($focus, equals: .holderName)
+        }
+        if state.canSaveCard {
+            Toggle("Save this card for next time", isOn: $state.saveCard)
+                .tint(theme.primary)
+        }
+    }
+
+    private var savedCardPicker: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(state.savedCards, id: \.token) { card in
+                pickerRow(selected: state.selectedSavedCard == card, select: { state.select(card) }) {
+                    Text(card.cardBrand == .unknown ? card.brand.capitalized : card.cardBrand.label)
+                        .font(.caption).foregroundColor(.secondary)
+                    Text("•••• \(card.last4)")
+                    Spacer()
+                    Text(card.expiry).font(.footnote).foregroundColor(.secondary)
+                }
+            }
+            pickerRow(selected: state.selectedSavedCard == nil, select: { state.select(nil) }) {
+                Text("Use another card")
+                Spacer()
+            }
+        }
+    }
+
+    private func pickerRow<Content: View>(selected: Bool, select: @escaping () -> Void, @ViewBuilder content: () -> Content) -> some View {
+        Button(action: select) {
+            HStack(spacing: 12) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .foregroundColor(selected ? theme.primary : .secondary)
+                content()
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func securityCodeLabel(_ brand: CardBrand) -> String {
+        let name = brand == .amex ? "CID" : "CVV"
+        return state.savedCardSecurityCode == .optional ? "\(name) (optional)" : name
     }
 
     @State private var lastFocus: PesaCardFormState.Field?

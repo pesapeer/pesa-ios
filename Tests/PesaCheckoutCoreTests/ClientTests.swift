@@ -241,6 +241,95 @@ final class ClientTests: XCTestCase {
         } catch { XCTFail("\(error)") }
     }
 
+    func testSessionDecodesSavedCards() async throws {
+        let edge = FakeEdge()
+        let extra = #", "canSaveCard": true, "savedCardSecurityCode": "required", "savedCards": [{"token": "tok_secret_1", "brand": "visa", "last4": "4242", "expiry": "12/2028", "holderName": "A Payer"}]"#
+        edge.sessions = [.init(status: 200, body: session(extra: extra))]
+        let s = try await client(edge).session(intentId: "int_1", clientSecret: "sec")
+        XCTAssertTrue(s.canSaveCard)
+        XCTAssertEqual(s.savedCardSecurityCode, .required)
+        XCTAssertEqual(s.savedCards, [SavedCard(token: "tok_secret_1", brand: "visa", last4: "4242", expiry: "12/2028", holderName: "A Payer")])
+        XCTAssertEqual(s.savedCards.first?.cardBrand, .visa)
+        XCTAssertFalse("\(s.savedCards)".contains("tok_secret_1"), "token stays out of descriptions")
+    }
+
+    func testSessionWithoutSavedCardsUsesDefaults() async throws {
+        let edge = FakeEdge()
+        edge.sessions = [.init(status: 200, body: session())]
+        let s = try await client(edge).session(intentId: "int_1", clientSecret: "sec")
+        XCTAssertFalse(s.canSaveCard)
+        XCTAssertTrue(s.savedCards.isEmpty)
+        XCTAssertEqual(s.savedCardSecurityCode, .optional)
+    }
+
+    func testUnknownSavedCardSecurityCodeReadsAsOptional() async throws {
+        let edge = FakeEdge()
+        let extra = #", "savedCardSecurityCode": "sometimes", "savedCards": [{"token": "t", "brand": "diners", "last4": "0004", "expiry": "01/2030"}]"#
+        edge.sessions = [.init(status: 200, body: session(extra: extra))]
+        let s = try await client(edge).session(intentId: "int_1", clientSecret: "sec")
+        XCTAssertEqual(s.savedCardSecurityCode, .optional)
+        XCTAssertEqual(s.savedCards.first?.cardBrand, .unknown)
+        XCTAssertEqual(s.savedCards.first?.holderName, "")
+    }
+
+    func testSaveCardIsLeftOutByDefault() async throws {
+        let edge = FakeEdge()
+        edge.card = [.init(status: 202, body: session(state: "settled", attempt: attempt("captured")))]
+        _ = try await client(edge).payWithCard(intentId: "int_1", clientSecret: "sec", card: visa()) { _ in true }
+        XCTAssertNil(edge.bodies[0]["saveCard"])
+    }
+
+    func testSavedCardPostsTokenAndSecurityCode() async throws {
+        let edge = FakeEdge()
+        edge.card = [.init(status: 202, body: session(attempt: attempt("pending")))]
+        edge.sessions = [.init(status: 200, body: session(state: "settled", attempt: attempt("captured")))]
+        let code = SecretBytes("123")
+        let result = try await client(edge).payWithSavedCard(intentId: "int_1", clientSecret: "sec", token: "tok_secret_1",
+                                                             securityCode: code, email: " a@b.co ") { _ in
+            XCTFail("no challenge expected"); return true
+        }
+        XCTAssertTrue(result.isSuccess)
+        XCTAssertTrue(code.isEmpty, "security code wiped after send")
+        let req = edge.requests[0]
+        XCTAssertEqual(req.url?.path, "/c/int_1/card")
+        XCTAssertFalse(req.url!.absoluteString.contains("tok_secret_1"))
+        let body = edge.bodies[0]
+        XCTAssertEqual(Set(body.keys), ["clientSecret", "savedCard", "email"])
+        XCTAssertEqual(body["email"] as? String, "a@b.co")
+        let saved = body["savedCard"] as? [String: Any]
+        XCTAssertEqual(saved?["token"] as? String, "tok_secret_1")
+        XCTAssertEqual(saved?["securityCode"] as? String, "123")
+    }
+
+    func testSavedCardWithoutSecurityCodeLeavesItOut() async throws {
+        let edge = FakeEdge()
+        edge.card = [.init(status: 202, body: session(state: "settled", attempt: attempt("captured")))]
+        _ = try await client(edge).payWithSavedCard(intentId: "int_1", clientSecret: "sec", token: "tok_secret_1") { _ in true }
+        let body = edge.bodies[0]
+        XCTAssertEqual(Set(body.keys), ["clientSecret", "savedCard"])
+        XCTAssertEqual((body["savedCard"] as? [String: Any]).map { Set($0.keys) }, ["token"])
+    }
+
+    func testSavedCardFollowsTheChallenge() async throws {
+        let edge = FakeEdge()
+        edge.card = [.init(status: 202, body: session(attempt: attempt("requires_3ds", challenge: true)))]
+        edge.sessions = [.init(status: 200, body: session(state: "settled", attempt: attempt("captured")))]
+        let opened = Counter()
+        let result = try await client(edge).payWithSavedCard(intentId: "int_1", clientSecret: "sec", token: "tok_secret_1") { url in
+            await opened.add(url)
+            return true
+        }
+        XCTAssertTrue(result.isSuccess)
+        let urls = await opened.urls
+        XCTAssertEqual(urls.count, 1)
+    }
+
+    func testRefusedSavedCardIsAnInvalidCard() {
+        let e = PesaCheckoutClient.error(status: 400, body: Data(#"{"error":{"code":"invalid_request","message":"Choose another card.","field":"savedCard.token"}}"#.utf8))
+        XCTAssertEqual(e.code, .invalidCard)
+        XCTAssertEqual(e.field, "savedCard.token")
+    }
+
     func testIntentIdIsPathEncoded() async throws {
         let edge = FakeEdge()
         edge.sessions = [.init(status: 200, body: session())]

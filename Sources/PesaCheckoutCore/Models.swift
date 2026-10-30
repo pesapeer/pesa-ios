@@ -67,6 +67,47 @@ public struct CheckoutAttempt: Decodable, Equatable, Sendable {
     }
 }
 
+/// Whether the form asks the CVV again for a saved card. An unknown value
+/// reads as `.optional`.
+public enum SavedCardSecurityCode: String, Sendable {
+    case required, optional, never
+}
+
+/// A card the customer kept on file. `token` is opaque: pass it to
+/// `payWithSavedCard` and nowhere else.
+public struct SavedCard: Decodable, Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
+    public var token: String
+    public var brand: String
+    public var last4: String
+    /// MM/YYYY.
+    public var expiry: String
+    public var holderName: String
+
+    public init(token: String, brand: String = "", last4: String = "", expiry: String = "", holderName: String = "") {
+        self.token = token
+        self.brand = brand
+        self.last4 = last4
+        self.expiry = expiry
+        self.holderName = holderName
+    }
+
+    public var cardBrand: CardBrand { CardBrand(rawValue: brand) ?? .unknown }
+
+    public var description: String { "SavedCard(\(brand) •••• \(last4), \(expiry))" }
+    public var debugDescription: String { description }
+
+    enum CodingKeys: String, CodingKey { case token, brand, last4, expiry, holderName }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        token = try c.decodeIfPresent(String.self, forKey: .token) ?? ""
+        brand = try c.decodeIfPresent(String.self, forKey: .brand) ?? ""
+        last4 = try c.decodeIfPresent(String.self, forKey: .last4) ?? ""
+        expiry = try c.decodeIfPresent(String.self, forKey: .expiry) ?? ""
+        holderName = try c.decodeIfPresent(String.self, forKey: .holderName) ?? ""
+    }
+}
+
 /// `checkoutSession` from the contract: the intent as the checkout sees it.
 public struct CheckoutSession: Decodable, Equatable, Sendable {
     public var intentId: String
@@ -83,6 +124,10 @@ public struct CheckoutSession: Decodable, Equatable, Sendable {
     public var cancelUrl: URL?
     public var attempt: CheckoutAttempt?
     public var expiresAt: Date?
+    public var canSaveCard: Bool
+    /// Most recently used first; empty when there are none.
+    public var savedCards: [SavedCard]
+    public var savedCardSecurityCode: SavedCardSecurityCode
 
     public var isOpen: Bool { state == "open" }
     public var isClosed: Bool { ["settled", "authorized", "expired", "cancelled"].contains(state) }
@@ -90,6 +135,7 @@ public struct CheckoutSession: Decodable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case intentId, state, amount, currency, description, descriptor, merchant, methods, needsEmail
         case returnUrl, cancelUrl, attempt, expiresAt
+        case canSaveCard, savedCards, savedCardSecurityCode
     }
 
     public init(from decoder: Decoder) throws {
@@ -107,6 +153,10 @@ public struct CheckoutSession: Decodable, Equatable, Sendable {
         cancelUrl = try c.decodeIfPresent(String.self, forKey: .cancelUrl).nonEmpty.flatMap(URL.init(string:))
         attempt = try c.decodeIfPresent(CheckoutAttempt.self, forKey: .attempt)
         expiresAt = try c.decodeIfPresent(String.self, forKey: .expiresAt).flatMap(ISO8601.parse)
+        canSaveCard = try c.decodeIfPresent(Bool.self, forKey: .canSaveCard) ?? false
+        savedCards = try c.decodeIfPresent([SavedCard].self, forKey: .savedCards) ?? []
+        savedCardSecurityCode = try c.decodeIfPresent(String.self, forKey: .savedCardSecurityCode)
+            .flatMap(SavedCardSecurityCode.init(rawValue:)) ?? .optional
     }
 }
 

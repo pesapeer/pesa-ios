@@ -10,7 +10,7 @@ struct ContentView: View {
     @State private var session: CheckoutSession?
     @State private var busy = false
     @State private var message = ""
-    @StateObject private var form = PesaCardFormState()
+    @State private var form = PesaCardFormState()
 
     var body: some View {
         NavigationView {
@@ -50,7 +50,9 @@ struct ContentView: View {
     private func load() async {
         configure()
         do {
-            session = try await PesaCheckout.shared.client.session(intentId: intentId, clientSecret: clientSecret)
+            let s = try await PesaCheckout.shared.client.session(intentId: intentId, clientSecret: clientSecret)
+            form = PesaCardFormState(session: s)
+            session = s
             message = ""
         } catch {
             message = "\(error)"
@@ -58,13 +60,26 @@ struct ContentView: View {
     }
 
     private func pay() async {
-        guard let card = form.details() else { return }
+        let saved = form.selectedSavedCard
+        let code = form.savedSecurityCodeBytes()
+        let card = form.details()
+        guard saved != nil || card != nil else { return }
         let email = form.trimmedEmail
+        let saveCard = form.savesCard
         form.clear()
         busy = true
         defer { busy = false }
         do {
-            let r = try await PesaCheckout.shared.pay(intentId: intentId, clientSecret: clientSecret, card: card, email: email)
+            let r: CheckoutResult
+            if let saved {
+                r = try await PesaCheckout.shared.payWithSavedCard(intentId: intentId, clientSecret: clientSecret,
+                                                                   token: saved.token, securityCode: code, email: email)
+            } else if let card {
+                r = try await PesaCheckout.shared.pay(intentId: intentId, clientSecret: clientSecret, card: card,
+                                                      email: email, saveCard: saveCard)
+            } else {
+                return
+            }
             message = r.isSuccess ? "Paid: \(r.state)" : "Not paid: \(r.failureReason ?? r.state)"
         } catch {
             message = "\(error)"
