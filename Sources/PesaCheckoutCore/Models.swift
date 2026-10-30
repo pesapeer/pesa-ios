@@ -67,8 +67,8 @@ public struct CheckoutAttempt: Decodable, Equatable, Sendable {
     }
 }
 
-/// Whether the form asks the CVV again for a saved card. An unknown value
-/// reads as `.optional`.
+/// Whether the form asks the CVV again for a saved card. A missing or
+/// unknown value reads as `.never`.
 public enum SavedCardSecurityCode: String, Sendable {
     case required, optional, never
 }
@@ -91,7 +91,21 @@ public struct SavedCard: Decodable, Equatable, Sendable, CustomStringConvertible
         self.holderName = holderName
     }
 
-    public var cardBrand: CardBrand { CardBrand(rawValue: brand) ?? .unknown }
+    public var cardBrand: CardBrand { CardBrand.parse(brand) }
+
+    public var parsedExpiry: CardExpiry? { CardExpiry.parse(expiry) }
+
+    /// The expiry as MM/YY, or `expiry` as sent when it does not parse.
+    public var shortExpiry: String {
+        guard let e = parsedExpiry else { return expiry }
+        return String(format: "%02d/%02d", e.month, e.year % 100)
+    }
+
+    /// False once the expiry month has passed. A card whose expiry does not
+    /// parse stays usable; the gateway decides.
+    public func isUsable(at now: Date = Date()) -> Bool {
+        parsedExpiry?.isValid(at: now) ?? true
+    }
 
     public var description: String { "SavedCard(\(brand) •••• \(last4), \(expiry))" }
     public var debugDescription: String { description }
@@ -128,6 +142,9 @@ public struct CheckoutSession: Decodable, Equatable, Sendable {
     /// Most recently used first; empty when there are none.
     public var savedCards: [SavedCard]
     public var savedCardSecurityCode: SavedCardSecurityCode
+    /// The tenant's language for this checkout: `en`, `fr`, `fr-CA`,
+    /// `zh-Hans`, or nil.
+    public var locale: String?
 
     public var isOpen: Bool { state == "open" }
     public var isClosed: Bool { ["settled", "authorized", "expired", "cancelled"].contains(state) }
@@ -135,7 +152,7 @@ public struct CheckoutSession: Decodable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case intentId, state, amount, currency, description, descriptor, merchant, methods, needsEmail
         case returnUrl, cancelUrl, attempt, expiresAt
-        case canSaveCard, savedCards, savedCardSecurityCode
+        case canSaveCard, savedCards, savedCardSecurityCode, locale
     }
 
     public init(from decoder: Decoder) throws {
@@ -156,7 +173,8 @@ public struct CheckoutSession: Decodable, Equatable, Sendable {
         canSaveCard = try c.decodeIfPresent(Bool.self, forKey: .canSaveCard) ?? false
         savedCards = try c.decodeIfPresent([SavedCard].self, forKey: .savedCards) ?? []
         savedCardSecurityCode = try c.decodeIfPresent(String.self, forKey: .savedCardSecurityCode)
-            .flatMap(SavedCardSecurityCode.init(rawValue:)) ?? .optional
+            .flatMap(SavedCardSecurityCode.init(rawValue:)) ?? .never
+        locale = try c.decodeIfPresent(String.self, forKey: .locale).nonEmpty
     }
 }
 
@@ -181,6 +199,9 @@ public struct CheckoutResult: Equatable, Sendable {
 }
 
 /// A refusal from the checkout edge or the gateway, or a transport failure.
+/// `code` is stable. `message` is safe to show and is in the client's
+/// language (`PesaStrings.message(for:field:)`). `gatewayMessage` is the
+/// gateway's English sentence, for support.
 public struct PesaCheckoutError: Error, Equatable, Sendable, CustomStringConvertible {
     public enum Code: String, Sendable {
         case invalidCard = "invalid_card"
@@ -202,13 +223,16 @@ public struct PesaCheckoutError: Error, Equatable, Sendable, CustomStringConvert
     /// for support conversations.
     public let gatewayCode: String?
     public let message: String
+    public let gatewayMessage: String?
     public let status: Int?
     public let field: String?
 
-    public init(_ code: Code, _ message: String, gatewayCode: String? = nil, status: Int? = nil, field: String? = nil) {
+    public init(_ code: Code, _ message: String, gatewayCode: String? = nil, gatewayMessage: String? = nil,
+                status: Int? = nil, field: String? = nil) {
         self.code = code
         self.gatewayCode = gatewayCode
         self.message = message
+        self.gatewayMessage = gatewayMessage
         self.status = status
         self.field = field
     }

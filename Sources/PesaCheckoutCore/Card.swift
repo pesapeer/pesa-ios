@@ -28,6 +28,18 @@ public enum CardBrand: String, Sendable, CaseIterable {
     /// Where spaces go when the number is shown.
     public var groups: [Int] { self == .amex ? [4, 6, 5] : [4, 4, 4, 4, 3] }
 
+    /// Reads a brand as the gateway or an acquirer names it, in any case and
+    /// with or without spaces, `_` or `-`.
+    public static func parse(_ name: String) -> CardBrand {
+        switch name.lowercased().filter({ $0 != " " && $0 != "_" && $0 != "-" }) {
+        case "visa": return .visa
+        case "mastercard", "mc": return .mastercard
+        case "amex", "americanexpress": return .amex
+        case "unionpay", "cup", "chinaunionpay": return .unionpay
+        default: return .unknown
+        }
+    }
+
     /// Detects the brand from the digits typed so far.
     public static func detect(_ digits: String) -> CardBrand {
         guard let first = digits.first else { return .unknown }
@@ -147,39 +159,40 @@ public enum CardValidation {
         return sum % 10 == 0
     }
 
-    /// Nil when the number is acceptable, else a message for the field.
-    public static func number(_ raw: String) -> String? {
+    /// Nil when the number is acceptable, else a message for the field in
+    /// `strings`. Each check below works the same way.
+    public static func number(_ raw: String, strings: PesaStrings = .en) -> String? {
         let digits = raw.filter { !$0.isWhitespace }
-        if digits.isEmpty { return "Enter the card number." }
-        if !allDigits(digits) { return "Digits only." }
+        if digits.isEmpty { return strings.numberEmpty }
+        if !allDigits(digits) { return strings.numberDigitsOnly }
         let brand = CardBrand.detect(digits)
-        if digits.count < brand.minLength || digits.count > brand.maxLength { return "Check the card number." }
-        if !luhn(digits) { return "Check the card number." }
+        if digits.count < brand.minLength || digits.count > brand.maxLength { return strings.numberInvalid }
+        if !luhn(digits) { return strings.numberInvalid }
         return nil
     }
 
-    public static func expiry(_ raw: String, now: Date = Date()) -> String? {
-        guard let parsed = CardExpiry.parse(raw) else { return "Use MM/YY." }
-        if !parsed.isValid(at: now) { return "This card has expired." }
+    public static func expiry(_ raw: String, now: Date = Date(), strings: PesaStrings = .en) -> String? {
+        guard let parsed = CardExpiry.parse(raw) else { return strings.expiryInvalid }
+        if !parsed.isValid(at: now) { return strings.cardExpired }
         return nil
     }
 
-    public static func securityCode(_ raw: String, brand: CardBrand) -> String? {
-        if !allDigits(raw) { return "Enter the security code." }
+    public static func securityCode(_ raw: String, brand: CardBrand, strings: PesaStrings = .en) -> String? {
+        if !allDigits(raw) { return strings.securityCodeEmpty }
         let lenient = brand == .unknown && (raw.count == 3 || raw.count == 4)
-        if raw.count != brand.cvvLength && !lenient { return "Check the security code." }
+        if raw.count != brand.cvvLength && !lenient { return strings.securityCodeInvalid }
         return nil
     }
 
-    public static func holderName(_ raw: String) -> String? {
+    public static func holderName(_ raw: String, strings: PesaStrings = .en) -> String? {
         let name = raw.trimmingCharacters(in: .whitespaces)
-        if name.count < 3 || name.count > 26 { return "Enter the name as printed, 3 to 26 characters." }
+        if name.count < 3 || name.count > 26 { return strings.holderNameLength }
         return nil
     }
 
-    public static func email(_ raw: String) -> String? {
+    public static func email(_ raw: String, strings: PesaStrings = .en) -> String? {
         let e = raw.trimmingCharacters(in: .whitespaces)
-        if e.isEmpty || !e.contains("@") || e.count > 50 { return "Enter an email address." }
+        if e.isEmpty || !e.contains("@") || e.count > 50 { return strings.emailInvalid }
         return nil
     }
 

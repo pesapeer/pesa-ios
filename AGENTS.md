@@ -55,6 +55,7 @@ Layout:
 | `Sources/PesaCheckoutCore/Client.swift` | `PesaCheckoutClient`: session, pay, poll. |
 | `Sources/PesaCheckoutCore/Pinning.swift` | SPKI pin check in the URLSession delegate. |
 | `Sources/PesaCheckoutCore/Card.swift` | Card validation, `SecretBytes`. |
+| `Sources/PesaCheckoutCore/PesaStrings*.swift` | `PesaStrings`: language resolution, money format, error messages; one table per language. |
 | `Sources/PesaCheckoutCore/Models.swift` | Session, attempt, result, error. |
 | `Sources/PesaCheckout/PesaCheckout.swift` | `PesaCheckout.shared`, Safari challenge, universal link. |
 | `Sources/PesaCheckout/CardForm.swift` | SwiftUI form and state. |
@@ -85,6 +86,8 @@ Rules for changes:
   Linux.
 - Keep error codes in step with pesa-kotlin and pesa-flutter. The three
   SDKs share one error vocabulary.
+- Put every user-visible string in `PesaStrings` and in all four tables.
+  `PesaStringsTests` checks the keys and placeholders.
 - Add a line to `CHANGELOG.md` under "Unreleased" for every user-visible
   change.
 - Do not edit `.github/allowed_signers` or `.github/verify-tag.sh`.

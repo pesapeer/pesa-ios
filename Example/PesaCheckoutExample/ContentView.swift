@@ -31,7 +31,7 @@ struct ContentView: View {
                     if let s = session {
                         Text("\(s.merchant.displayName) · \(s.amount) \(s.currency) · \(s.state)").font(.footnote)
                         PesaCardForm(state: form)
-                        PesaPayButton(state: form, title: "Pay \(s.amount) \(s.currency)", busy: busy) { Task { await pay() } }
+                        PesaPayButton(state: form, amount: s.amount, currency: s.currency, busy: busy) { Task { await pay() } }
                     }
                     if !message.isEmpty { Text(message).font(.footnote) }
                 }

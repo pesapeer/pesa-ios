@@ -30,13 +30,13 @@ use the same flow and the same error codes.
 ## Install
 
 Swift Package Manager: add `https://github.com/pesapeer/pesa-ios` from
-`v0.2.0`. Pick the `PesaCheckout` product. Pick `PesaCheckoutCore` for a
+`v0.3.0`. Pick the `PesaCheckout` product. Pick `PesaCheckoutCore` for a
 headless integration with your own UI.
 
 CocoaPods:
 
 ```ruby
-pod 'PesaCheckout', '~> 0.2'
+pod 'PesaCheckout', '~> 0.3'
 ```
 
 Requirements: iOS 15 or later, Swift 5.9 or later. No third-party
@@ -105,13 +105,45 @@ The session tells the form what to show:
   `brand`, `last4`, `expiry` (MM/YYYY) and `holderName`. The list is empty
   when there are none.
 - `savedCardSecurityCode`: `.required`, `.optional` or `.never`. It tells
-  the form when to ask for the CVV again. An unknown value reads as
-  `.optional`.
+  the form when to ask for the CVV again. A missing or unknown value reads
+  as `.never`.
 
-Make the form state from the session. `PesaCardForm` then shows the saved
-cards first and selects the first one. "Use another card" shows the card
-fields. The CVV field follows `savedCardSecurityCode`. The switch shows
-only when `canSaveCard` is true.
+### The picker
+
+With saved cards, `PesaCardForm` is a payment sheet: one rounded list with
+hairlines between the rows.
+
+- One row per saved card: the brand on a small white chip, `•••• 0165` on
+  the first line and `Expires 09/28` under it, and a radio at the end. The
+  selected row has a filled radio and a semibold title.
+- An expired card stays in the list, greyed, and reads `Expired`. It
+  cannot be selected. The form selects the first card that has not
+  expired.
+- With `.required` or `.optional`, the selected row takes the CVV in a
+  narrow field at its end. With `.never` there is no CVV field.
+- "Use another card" is the last row. Selecting it opens the card fields
+  in the same list. "Save this card for next time" is their last line
+  while `canSaveCard` is true. Pass `showSaveCardSwitch: false` (UIKit:
+  `showsSaveCardSwitch = false`) and place `PesaSaveCardSwitch(state:)`
+  yourself if your screen has its own spot for it.
+- Colours come from `PesaCardTheme`. The defaults are system colours and
+  follow dark mode; `listBackground` is the list's surface and `border`
+  its outline and hairlines. The brand chip stays white so the marks read
+  on any surface.
+- Brand names from the gateway are read in any case, with or without
+  spaces, `_` or `-`. `mc`, `americanexpress`, `cup` and `chinaunionpay`
+  are understood (`CardBrand.parse`).
+
+The pay button names the selected card. `PesaPayButton(state:title:)` and
+`PesaCardFormViewController` show "Pay £1.00 with •••• 0165" while a saved
+card is selected and "Pay £1.00" otherwise; pass `namesSavedCard: false`
+to keep your title as is. `PesaPayButton(state:amount:currency:)` writes
+the title for you in the form's language. For your own button,
+`form.payLabel(amount: "1.00", currency: "GBP")` or
+`form.payLabel("Pay £1.00")` gives the same text, and
+`form.selectedSavedCard` has the card.
+
+### Paying
 
 ```swift
 let form = PesaCardFormState(session: session)
@@ -149,9 +181,58 @@ Rules:
 - The 3-D Secure challenge and the result are the same as for a typed
   card.
 
+## Language
+
+The SDK ships four languages: `en`, `fr`, `fr-CA` and `zh-Hans`. The
+strings are Swift code in `PesaCheckoutCore` (`PesaStrings`). There are no
+`.strings` files, so SPM and CocoaPods need no resources.
+
+The SDK picks the language in this order:
+
+1. The `locale` that your app gives.
+2. The session's `locale`. The merchant sets it on the intent.
+3. The device language (`Locale.preferredLanguages`).
+4. English.
+
+Close tags are mapped: `fr-BE` gives `fr`, `zh` and `zh-Hant` give
+`zh-Hans`. An unknown tag such as `de` goes to the next step.
+
+```swift
+PesaCheckout.configure(.init(pins: pins, locale: "fr"))            // error messages
+let form = PesaCardFormState(session: session, locale: "fr")      // the form
+PesaCardForm(state: form)
+PesaPayButton(state: form, amount: session.amount, currency: session.currency) { pay() }
+```
+
+- Leave `locale` nil to follow the session and then the device.
+- `PesaCardForm`, `PesaPayButton`, `PesaSaveCardSwitch` and
+  `PesaCardFormViewController` also take `locale`.
+- `PesaStrings.resolve(locale, session: session.locale)` gives the strings
+  for your own screens. `formatAmount`, `payLabel` and `message(for:)`
+  fill them.
+- To change a sentence, copy a table: `var s = PesaStrings.fr`, then set
+  the property.
+- `CardValidation` uses English unless you pass `strings:`.
+
+Money uses Foundation's `NumberFormatter` (`.currency`) for the chosen
+language. The SDK does not change its output. ICU (CLDR 48) gives for
+£2.00:
+
+| Language | Output |
+|---|---|
+| `en`, `zh-Hans` | `£2.00` |
+| `fr-CA` | `2,00 £` |
+| `fr` | `2,00 £GB` |
+
+In `fr` and `fr-CA` the space before the symbol is a no-break space
+(U+00A0), not a narrow no-break space (U+202F). In `fr` the pound is
+`£GB`. Apple's ICU data can differ by iOS version.
+
 ## Error codes
 
-`PesaCheckoutError.code` is one of:
+`PesaCheckoutError.code` is one of the codes below. `message` is in the
+client's language and is safe to show. `gatewayMessage` is the gateway's
+English sentence for support.
 
 | Code | Meaning |
 |---|---|

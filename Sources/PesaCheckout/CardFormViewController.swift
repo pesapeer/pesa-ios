@@ -22,25 +22,40 @@ public final class PesaCardFormViewController: UIViewController {
     public var checkout: PesaCheckout
     public var theme: PesaCardTheme
     public var showsPayButton: Bool
-    public var payTitle: String
+    /// Pass false to place `PesaSaveCardSwitch` yourself.
+    public var showsSaveCardSwitch = true
+    /// The pay button's title. With a saved card selected the button adds
+    /// the card ("Pay £1.00 with •••• 0165"). Nil writes "Pay £1.00" from
+    /// `amount` and `currency`, or "Pay" without them, in the form's language.
+    public var payTitle: String?
+    /// The amount as a decimal string, such as `1.00`, for the pay button.
+    public var amount: String?
+    public var currency: String?
 
     private var busy = false { didSet { host.rootView = makeRoot() } }
     private lazy var host = UIHostingController(rootView: makeRoot())
     private var completeObservation: Any?
 
+    /// `locale` sets the form's language. Nil follows `sessionLocale` (the
+    /// session's `locale`), then the device.
     public init(intentId: String, clientSecret: String, needsEmail: Bool = false,
-                savedCards: [SavedCard] = [], savedCardSecurityCode: SavedCardSecurityCode = .optional,
+                savedCards: [SavedCard] = [], savedCardSecurityCode: SavedCardSecurityCode = .never,
                 canSaveCard: Bool = false,
                 checkout: PesaCheckout? = nil, theme: PesaCardTheme = .pesa,
-                showsPayButton: Bool = true, payTitle: String = "Pay") {
+                showsPayButton: Bool = true, payTitle: String? = nil,
+                amount: String? = nil, currency: String? = nil,
+                locale: String? = nil, sessionLocale: String? = nil) {
         self.intentId = intentId
         self.clientSecret = clientSecret
         self.checkout = checkout ?? .shared
         self.theme = theme
         self.showsPayButton = showsPayButton
         self.payTitle = payTitle
+        self.amount = amount
+        self.currency = currency
         self.state = PesaCardFormState(needsEmail: needsEmail, savedCards: savedCards,
-                                       savedCardSecurityCode: savedCardSecurityCode, canSaveCard: canSaveCard)
+                                       savedCardSecurityCode: savedCardSecurityCode, canSaveCard: canSaveCard,
+                                       locale: locale, sessionLocale: sessionLocale)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -107,18 +122,26 @@ public final class PesaCardFormViewController: UIViewController {
             } catch let e as PesaCheckoutError {
                 delegate?.cardForm(self, didFail: e)
             } catch {
-                delegate?.cardForm(self, didFail: PesaCheckoutError(.transport, error.localizedDescription))
+                delegate?.cardForm(self, didFail: PesaCheckoutError(.transport, state.strings.errorNetwork))
             }
         }
     }
 
     private func makeRoot() -> AnyView {
         AnyView(VStack(spacing: 16) {
-            PesaCardForm(state: state, theme: theme)
+            PesaCardForm(state: state, theme: theme, showSaveCardSwitch: showsSaveCardSwitch)
             if showsPayButton {
-                PesaPayButton(state: state, title: payTitle, busy: busy, theme: theme) { [weak self] in self?.pay() }
+                payButton
             }
         }.padding())
+    }
+
+    private var payButton: PesaPayButton {
+        let action: () -> Void = { [weak self] in self?.pay() }
+        if payTitle == nil, let amount, let currency {
+            return PesaPayButton(state: state, amount: amount, currency: currency, busy: busy, theme: theme, action: action)
+        }
+        return PesaPayButton(state: state, title: payTitle ?? state.strings.payButton, busy: busy, theme: theme, action: action)
     }
 }
 

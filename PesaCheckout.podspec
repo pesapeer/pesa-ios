@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'PesaCheckout'
-  s.version          = '0.2.0'
+  s.version          = '0.3.0'
   s.summary          = 'Pesa Checkout for iOS: native card fields, 3-D Secure, pinned transport.'
   s.homepage         = 'https://github.com/pesapeer/pesa-ios'
   s.license          = { :type => 'MIT', :file => 'LICENSE' }

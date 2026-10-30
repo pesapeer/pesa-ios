@@ -72,4 +72,28 @@ final class CardTests: XCTestCase {
         XCTAssertTrue(card.securityCode.isEmpty)
         card.number.withString { XCTAssertEqual($0, "") }
     }
+
+    func testBrandFromItsName() {
+        for name in ["visa", "VISA", " Visa "] { XCTAssertEqual(CardBrand.parse(name), .visa, name) }
+        for name in ["mastercard", "MasterCard", "master_card", "master-card", "mc", "MC"] { XCTAssertEqual(CardBrand.parse(name), .mastercard, name) }
+        for name in ["amex", "AMEX", "americanexpress", "American Express", "american_express"] { XCTAssertEqual(CardBrand.parse(name), .amex, name) }
+        for name in ["unionpay", "UnionPay", "union-pay", "cup", "CUP", "chinaunionpay", "China UnionPay"] { XCTAssertEqual(CardBrand.parse(name), .unionpay, name) }
+        for name in ["", "diners", "card", "visa electron"] { XCTAssertEqual(CardBrand.parse(name), .unknown, name) }
+    }
+
+    func testSavedCardExpiry() {
+        let card = SavedCard(token: "t", brand: "visa", last4: "0165", expiry: "09/2028")
+        XCTAssertEqual(card.shortExpiry, "09/28")
+        XCTAssertTrue(card.isUsable(at: utc(2028, 9, 30)), "usable through its expiry month")
+        XCTAssertFalse(card.isUsable(at: utc(2028, 10, 1)))
+        XCTAssertEqual(SavedCard(token: "t", expiry: "soon").shortExpiry, "soon")
+        XCTAssertTrue(SavedCard(token: "t", expiry: "soon").isUsable(at: utc(2030, 1, 1)), "an unparsed expiry is left to the gateway")
+    }
+
+    private func utc(_ y: Int, _ m: Int, _ d: Int) -> Date {
+        var c = DateComponents()
+        c.year = y; c.month = m; c.day = d; c.hour = 12
+        c.timeZone = TimeZone(identifier: "UTC")
+        return Calendar(identifier: .gregorian).date(from: c)!
+    }
 }

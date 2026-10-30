@@ -20,19 +20,24 @@ public struct PesaCheckoutConfiguration: Sendable {
     public var pollTries: Int
     public var challengeCeiling: TimeInterval
     public var requestTimeout: TimeInterval
+    /// The language of error messages, such as `fr`. Nil follows the
+    /// session's `locale`, then the device. See `PesaStrings.resolve`.
+    public var locale: String?
 
     public init(checkoutURL: URL = URL(string: "https://checkout.pesa.co")!,
                 pins: [String] = [],
                 pollInterval: TimeInterval = 1.5,
                 pollTries: Int = 60,
                 challengeCeiling: TimeInterval = 300,
-                requestTimeout: TimeInterval = 30) {
+                requestTimeout: TimeInterval = 30,
+                locale: String? = nil) {
         self.checkoutURL = checkoutURL
         self.pins = pins
         self.pollInterval = pollInterval
         self.pollTries = pollTries
         self.challengeCeiling = challengeCeiling
         self.requestTimeout = requestTimeout
+        self.locale = locale
     }
 }
 
@@ -133,7 +138,7 @@ public final class PesaCheckoutClient: Sendable {
 
     /// Apple Pay. Phase 2: the PassKit token goes to `POST /c/{intent}/wallet`.
     public func payWithWallet(intentId: String, clientSecret: String, wallet: WalletKind) async throws -> CheckoutResult {
-        throw PesaCheckoutError(.notImplemented, "Wallet payments arrive in the next release.")
+        throw PesaCheckoutError(.notImplemented, strings().errorNotImplemented)
     }
 
     private func follow(intentId: String, clientSecret: String, first: CheckoutSession,
@@ -149,18 +154,24 @@ public final class PesaCheckoutClient: Sendable {
             if let a, a.requires3DS, let url = a.challengeUrl, challengeStarted == nil {
                 challengeStarted = now()
                 guard await openChallenge(url) else {
-                    throw PesaCheckoutError(.challengeUnavailable, "The bank authentication page could not be opened.")
+                    throw PesaCheckoutError(.challengeUnavailable, strings(s).errorChallengeUnavailable)
                 }
             }
             tries += 1
             let over = challengeStarted.map { now().timeIntervalSince($0) > configuration.challengeCeiling }
                 ?? (tries >= configuration.pollTries)
             if over {
-                throw PesaCheckoutError(.timeout, "The payment is still being processed. Check with the merchant before paying again.")
+                throw PesaCheckoutError(.timeout, strings(s).errorTimeout)
             }
             try await sleep(configuration.pollInterval)
             s = try await session(intentId: intentId, clientSecret: clientSecret)
         }
+    }
+
+    /// The client's language: the configured locale, then the session's,
+    /// then the device.
+    private func strings(_ session: CheckoutSession? = nil) -> PesaStrings {
+        PesaStrings.resolve(configuration.locale, session: session?.locale)
     }
 
     private func url(_ intentId: String, _ suffix: String) -> URL {
@@ -179,30 +190,30 @@ public final class PesaCheckoutClient: Sendable {
         } catch let e as PesaCheckoutError {
             throw e
         } catch let e as URLError where e.code == .serverCertificateUntrusted || e.code == .cancelled {
-            throw PesaCheckoutError(.pinMismatch, "The checkout's certificate is not the one this app trusts.")
+            throw PesaCheckoutError(.pinMismatch, strings().errorPinMismatch)
         } catch {
-            throw PesaCheckoutError(.transport, error.localizedDescription)
+            throw PesaCheckoutError(.transport, strings().errorNetwork)
         }
         if (200..<300).contains(response.statusCode) { return data }
-        throw Self.error(status: response.statusCode, body: data)
+        throw Self.error(status: response.statusCode, body: data, strings: strings())
     }
 
     private func decode<T: Decodable>(_ data: Data) throws -> T {
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
-            throw PesaCheckoutError(.transport, "Unexpected answer from the checkout.")
+            throw PesaCheckoutError(.transport, strings().errorServer)
         }
     }
 
-    static func error(status: Int, body: Data) -> PesaCheckoutError {
+    static func error(status: Int, body: Data, strings: PesaStrings = .en) -> PesaCheckoutError {
         var gatewayCode: String?
-        var message = "The checkout refused the request."
+        var gatewayMessage: String?
         var field: String?
         if let j = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
             let e = (j["error"] as? [String: Any]) ?? j
             gatewayCode = e["code"] as? String
-            message = (e["message"] as? String) ?? message
+            gatewayMessage = e["message"] as? String
             field = e["field"] as? String
         }
         let cardFields: Set<String> = ["cardNumber", "expiryMonth", "expiryYear", "securityCode", "holderName", "email",
@@ -217,7 +228,8 @@ public final class PesaCheckoutClient: Sendable {
         case 500...: code = .server
         default: code = .invalidRequest
         }
-        return PesaCheckoutError(code, message, gatewayCode: gatewayCode, status: status, field: field)
+        return PesaCheckoutError(code, strings.message(for: code, field: field), gatewayCode: gatewayCode,
+                                 gatewayMessage: gatewayMessage, status: status, field: field)
     }
 }
 
@@ -244,12 +256,12 @@ public final class URLSessionTransport: NSObject, CheckoutTransport, @unchecked 
         request.timeoutInterval = timeout
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw PesaCheckoutError(.transport, "Unexpected answer from the checkout.")
+            throw PesaCheckoutError(.transport, PesaStrings.resolve().errorServer)
         }
         return (data, http)
     }
 }
 
 public enum PesaCheckoutVersion {
-    public static let current = "0.2.0"
+    public static let current = "0.3.0"
 }
