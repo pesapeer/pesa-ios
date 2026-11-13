@@ -76,15 +76,16 @@ public final class PesaCheckoutClient: Sendable {
     }
 
     /// Charges `card` against the intent and follows it to an outcome: polls
-    /// the session, hands the 3-D Secure challenge URL to `openChallenge`
-    /// once when the issuer asks, and returns when the attempt is no longer
-    /// pending. The card is wiped once the request is encoded.
+    /// the session, shows the 3-D Secure challenge on `challenge` once when
+    /// the issuer asks, closes it when the attempt settles, and returns when
+    /// the attempt is no longer pending. The card is wiped once the request
+    /// is encoded.
     public func payWithCard(intentId: String,
                             clientSecret: String,
                             card: CardDetails,
                             email: String? = nil,
                             saveCard: Bool = false,
-                            openChallenge: @escaping @Sendable (URL) async -> Bool) async throws -> CheckoutResult {
+                            challenge: PesaChallengePresenter) async throws -> CheckoutResult {
         defer { card.wipe() }
         var body: [String: Any] = [
             "clientSecret": clientSecret,
@@ -100,7 +101,19 @@ public final class PesaCheckoutClient: Sendable {
         body.removeAll()
         let first: CheckoutSession = try await decode(send(req))
         req.httpBody = nil
-        return try await follow(intentId: intentId, clientSecret: clientSecret, first: first, openChallenge: openChallenge)
+        return try await follow(intentId: intentId, clientSecret: clientSecret, first: first, challenge: challenge)
+    }
+
+    /// `payWithCard` with the challenge opened by a closure the SDK cannot
+    /// close (a browser): the pre-0.4.0 form.
+    public func payWithCard(intentId: String,
+                            clientSecret: String,
+                            card: CardDetails,
+                            email: String? = nil,
+                            saveCard: Bool = false,
+                            openChallenge: @escaping @Sendable (URL) async -> Bool) async throws -> CheckoutResult {
+        try await payWithCard(intentId: intentId, clientSecret: clientSecret, card: card, email: email,
+                              saveCard: saveCard, challenge: ClosureChallengePresenter(openChallenge))
     }
 
     /// Charges one of the session's `savedCards` and follows it to an
@@ -112,7 +125,7 @@ public final class PesaCheckoutClient: Sendable {
                                  token: String,
                                  securityCode: SecretBytes? = nil,
                                  email: String? = nil,
-                                 openChallenge: @escaping @Sendable (URL) async -> Bool) async throws -> CheckoutResult {
+                                 challenge: PesaChallengePresenter) async throws -> CheckoutResult {
         defer { securityCode?.wipe() }
         var savedCard: [String: Any] = ["token": token]
         if let securityCode, !securityCode.isEmpty { securityCode.withString { savedCard["securityCode"] = $0 } }
@@ -123,7 +136,19 @@ public final class PesaCheckoutClient: Sendable {
         body.removeAll()
         let first: CheckoutSession = try await decode(send(req))
         req.httpBody = nil
-        return try await follow(intentId: intentId, clientSecret: clientSecret, first: first, openChallenge: openChallenge)
+        return try await follow(intentId: intentId, clientSecret: clientSecret, first: first, challenge: challenge)
+    }
+
+    /// `payWithSavedCard` with the challenge opened by a closure the SDK
+    /// cannot close (a browser): the pre-0.4.0 form.
+    public func payWithSavedCard(intentId: String,
+                                 clientSecret: String,
+                                 token: String,
+                                 securityCode: SecretBytes? = nil,
+                                 email: String? = nil,
+                                 openChallenge: @escaping @Sendable (URL) async -> Bool) async throws -> CheckoutResult {
+        try await payWithSavedCard(intentId: intentId, clientSecret: clientSecret, token: token, securityCode: securityCode,
+                                   email: email, challenge: ClosureChallengePresenter(openChallenge))
     }
 
     private func cardRequest(intentId: String, clientSecret: String, body: [String: Any]) throws -> URLRequest {
@@ -142,18 +167,25 @@ public final class PesaCheckoutClient: Sendable {
     }
 
     private func follow(intentId: String, clientSecret: String, first: CheckoutSession,
-                        openChallenge: @Sendable (URL) async -> Bool) async throws -> CheckoutResult {
+                        challenge: PesaChallengePresenter) async throws -> CheckoutResult {
         var s = first
         var tries = 0
         var challengeStarted: Date?
+        let cancelled = ChallengeCancellation()
+        defer {
+            if challengeStarted != nil { Task { await challenge.close() } }
+        }
         while true {
             let a = s.attempt
             if a == nil || !(a!.isPending || a!.requires3DS) || s.isClosed {
                 return CheckoutResult(intentId: intentId, state: s.state, attempt: a)
             }
+            if cancelled.isSet {
+                throw PesaCheckoutError(.challengeCancelled, strings(s).errorChallengeCancelled)
+            }
             if let a, a.requires3DS, let url = a.challengeUrl, challengeStarted == nil {
                 challengeStarted = now()
-                guard await openChallenge(url) else {
+                guard await challenge.open(url, onCancelled: { cancelled.set() }) else {
                     throw PesaCheckoutError(.challengeUnavailable, strings(s).errorChallengeUnavailable)
                 }
             }
@@ -264,4 +296,21 @@ public final class URLSessionTransport: NSObject, CheckoutTransport, @unchecked 
 
 public enum PesaCheckoutVersion {
     public static let current = "0.3.0"
+}
+
+/// A flag the challenge page sets from any thread when the cardholder
+/// dismisses it, read by the poll loop on its next turn.
+final class ChallengeCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    var isSet: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+
+    func set() {
+        lock.lock(); defer { lock.unlock() }
+        value = true
+    }
 }

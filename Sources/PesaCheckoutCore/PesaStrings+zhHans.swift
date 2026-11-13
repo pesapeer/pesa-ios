@@ -45,7 +45,9 @@ extension PesaStrings {
         errorPinMismatch: "无法建立安全连接，请更换网络后重试。",
         errorTimeout: "付款仍在处理中。再次付款前，请先向商家确认。",
         errorChallengeUnavailable: "无法打开银行验证页面。",
+        errorChallengeCancelled: "银行验证已取消，请重试以完成付款。",
         errorServer: "无法完成付款，请重试。",
-        errorNotImplemented: "暂不支持钱包支付。"
+        errorNotImplemented: "暂不支持钱包支付。",
+        challengeTitle: "验证您的卡"
     )
 }

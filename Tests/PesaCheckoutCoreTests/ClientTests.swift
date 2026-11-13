@@ -178,6 +178,50 @@ final class ClientTests: XCTestCase {
         XCTAssertEqual(edge.requests.count, 3)
     }
 
+    final class RecordingPresenter: PesaChallengePresenter, @unchecked Sendable {
+        let cancels: Bool
+        var opened = 0
+        var closed = 0
+        init(cancels: Bool = false) { self.cancels = cancels }
+        func open(_ url: URL, onCancelled: @escaping @Sendable () -> Void) async -> Bool {
+            opened += 1
+            if cancels { onCancelled() }
+            return true
+        }
+        func close() async { closed += 1 }
+    }
+
+    func testChallengeIsClosedOnceTheAttemptSettles() async throws {
+        let edge = FakeEdge()
+        edge.card = [.init(status: 202, body: session(attempt: attempt("requires_3ds", challenge: true)))]
+        edge.sessions = [
+            .init(status: 200, body: session(attempt: attempt("requires_3ds", challenge: true))),
+            .init(status: 200, body: session(state: "settled", attempt: attempt("captured"))),
+        ]
+        let presenter = RecordingPresenter()
+        let result = try await client(edge).payWithCard(intentId: "int_1", clientSecret: "sec", card: visa(), challenge: presenter)
+        XCTAssertTrue(result.isSuccess)
+        XCTAssertEqual(presenter.opened, 1)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(presenter.closed, 1)
+    }
+
+    func testChallengeTheCardholderDismissesIsCancelled() async {
+        let edge = FakeEdge()
+        edge.card = [.init(status: 202, body: session(attempt: attempt("requires_3ds", challenge: true)))]
+        edge.sessions = [.init(status: 200, body: session(attempt: attempt("requires_3ds", challenge: true)))]
+        do {
+            _ = try await client(edge).payWithCard(intentId: "int_1", clientSecret: "sec", card: visa(), challenge: RecordingPresenter(cancels: true))
+            XCTFail("expected challenge_cancelled")
+        } catch let e as PesaCheckoutError {
+            XCTAssertEqual(e.code, .challengeCancelled)
+        } catch { XCTFail("\(error)") }
+    }
+
+    func testChallengeReturnPath() {
+        XCTAssertEqual(challengeReturnPath(for: URL(string: "https://checkout.pesa.co/c/int_1/challenge?t=s")!), "/c/int_1/return")
+    }
+
     func testChallengeCeilingIsWallClock() async {
         let edge = FakeEdge()
         edge.card = [.init(status: 202, body: session(attempt: attempt("requires_3ds", challenge: true)))]

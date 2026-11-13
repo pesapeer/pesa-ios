@@ -6,9 +6,11 @@ or that change this repository. Humans: read README.md first.
 ## What this package is
 
 - Swift Package `PesaCheckout` (UI) and `PesaCheckoutCore` (client, no UI).
-- Native card fields. 3-D Secure in `SFSafariViewController`. SPKI-pinned
-  TLS to `checkout.pesa.co`.
-- No web views. No third-party dependencies. iOS 15+, Swift 5.9+.
+- Native card fields. 3-D Secure in a full-screen `WKWebView` page inside
+  the app (`PesaChallengeSurface.inApp`, the default) or
+  `SFSafariViewController` (`.browser`). SPKI-pinned TLS to `checkout.pesa.co`.
+- The card never touches a web view. No third-party dependencies. iOS 15+,
+  Swift 5.9+.
 
 ## Hard rules
 
@@ -57,7 +59,7 @@ Layout:
 | `Sources/PesaCheckoutCore/Card.swift` | Card validation, `SecretBytes`. |
 | `Sources/PesaCheckoutCore/PesaStrings*.swift` | `PesaStrings`: language resolution, money format, error messages; one table per language. |
 | `Sources/PesaCheckoutCore/Models.swift` | Session, attempt, result, error. |
-| `Sources/PesaCheckout/PesaCheckout.swift` | `PesaCheckout.shared`, Safari challenge, universal link. |
+| `Sources/PesaCheckout/PesaCheckout.swift` | `PesaCheckout.shared`, the in-app and Safari challenge surfaces, universal link. |
 | `Sources/PesaCheckout/CardForm.swift` | SwiftUI form and state. |
 | `Sources/PesaCheckout/CardFormViewController.swift` | UIKit form. |
 | `Sources/PesaCheckout/SecureScreen.swift` | Screenshot and switcher protection. |

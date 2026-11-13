@@ -45,7 +45,9 @@ extension PesaStrings {
         errorPinMismatch: "Impossible d’établir une connexion sécurisée. Réessayez depuis un autre réseau.",
         errorTimeout: "Le paiement est toujours en cours de traitement. Vérifiez auprès du commerçant avant de payer à nouveau.",
         errorChallengeUnavailable: "La page d’authentification de votre banque n’a pas pu s’ouvrir.",
+        errorChallengeCancelled: "L’authentification bancaire a été annulée. Réessayez pour finaliser le paiement.",
         errorServer: "Le paiement n’a pas pu aboutir. Réessayez.",
-        errorNotImplemented: "Les paiements par portefeuille ne sont pas encore disponibles."
+        errorNotImplemented: "Les paiements par portefeuille ne sont pas encore disponibles.",
+        challengeTitle: "Vérifiez votre carte"
     )
 }

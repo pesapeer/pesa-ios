@@ -6,7 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- 3-D Secure runs in a full-screen `WKWebView` page inside the app
+  (`WebViewChallengeOpener`), the default for `PesaCheckout`. The SDK
+  closes the page once the attempt settles; the customer no longer leaves
+  the app and the universal link is no longer needed for cards. Pass
+  `challenge: .browser` to `PesaCheckout(configuration:challenge:)` or
+  `configure(_:challenge:)` for `SFSafariViewController` as before.
+- `PesaCheckoutClient.payWithCard` and `payWithSavedCard` take
+  `challenge: PesaChallengePresenter`; the `openChallenge:` closure forms
+  stay and wrap it in `ClosureChallengePresenter`.
+
 ### Added
+- `PesaChallengePresenter` (`open(_:onCancelled:)`, `close()`),
+  `ClosureChallengePresenter`, `challengeReturnPath(for:)`.
+- `PesaCheckoutError.Code.challengeCancelled` when the cardholder closes
+  the page before it finished, with `PesaStrings.errorChallengeCancelled`.
+  `SafariChallengeOpener` reports Done the same way.
+- `PesaStrings.challengeTitle`, the page's title.
 - Languages: `en`, `fr`, `fr-CA` and `zh-Hans`. `PesaStrings` in
   `PesaCheckoutCore` holds every string, one table per language in code
   (`.en`, `.fr`, `.frCA`, `.zhHans`). `PesaStrings.resolve(_:session:)`

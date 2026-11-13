@@ -5,7 +5,7 @@
 Native Swift SDK for a card payment on a Pesa intent.
 
 - Native card fields. No web views.
-- 3-D Secure in `SFSafariViewController`.
+- 3-D Secure in a full-screen page inside the app.
 - TLS with SPKI pinning to `checkout.pesa.co`.
 - The card screen is hidden in screenshots and the app switcher.
 
@@ -21,8 +21,12 @@ use the same flow and the same error codes.
 2. Your server gives the app `id` and `clientSecret`. Never the API key.
 3. The app shows `PesaCardForm`. Then it calls `PesaCheckout.shared.pay(...)`.
 4. The SDK posts the card to `checkout.pesa.co` and polls the result.
-   When the issuer asks for 3-D Secure, the SDK opens the challenge in
-   Safari. The SDK returns a `CheckoutResult`.
+   When the issuer asks for 3-D Secure, the SDK shows the challenge in a
+   full-screen web view inside the app and closes it when the attempt
+   settles. The customer never leaves. The SDK returns a `CheckoutResult`.
+   Pass `challenge: .browser` to `PesaCheckout` or `configure` for
+   `SFSafariViewController` instead; your universal link then brings the
+   customer back through `handle(url:)`.
 5. **Your server trusts only the gateway.** It fulfils the order on the
    `intent.state_changed` event or on `GET /v1/intents/{reference}`.
    It must not trust the result the app saw.
@@ -247,8 +251,12 @@ English sentence for support.
 | `timeout` | No final state before the poll limit. |
 | `pinMismatch` | The server key did not match a pin. The SDK sent no request. |
 | `challengeUnavailable` | The 3-D Secure page could not open. |
+| `challengeCancelled` | The customer closed the 3-D Secure page before it finished. |
 
 ## Universal link for the 3-D Secure return
+
+Only needed with `challenge: .browser`. With the default in-app page the
+SDK sees the return itself.
 
 The checkout return page sends the browser to the intent's `returnUrl`
 with `?intent=<id>&state=<state>`.
@@ -260,7 +268,7 @@ with `?intent=<id>&state=<state>`.
 
 `handle(url:)` closes the Safari sheet. The result arrives through
 `pay()` in all cases. If the link is missed, the sheet stays open until
-the user closes it.
+the attempt settles or the user closes it.
 
 ## Certificate pins
 

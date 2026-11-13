@@ -59,8 +59,11 @@ public struct PesaStrings: Equatable, Sendable {
     public var errorPinMismatch: String
     public var errorTimeout: String
     public var errorChallengeUnavailable: String
+    public var errorChallengeCancelled: String
     public var errorServer: String
     public var errorNotImplemented: String
+    /// The title of the in-app 3-D Secure page.
+    public var challengeTitle: String
 
     public static let all: [PesaStrings] = [.en, .fr, .frCA, .zhHans]
 
@@ -154,6 +157,7 @@ public struct PesaStrings: Equatable, Sendable {
         case .timeout: return errorTimeout
         case .pinMismatch: return errorPinMismatch
         case .challengeUnavailable: return errorChallengeUnavailable
+        case .challengeCancelled: return errorChallengeCancelled
         case .notImplemented: return errorNotImplemented
         }
     }

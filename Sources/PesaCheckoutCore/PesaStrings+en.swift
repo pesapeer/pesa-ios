@@ -44,7 +44,9 @@ extension PesaStrings {
         errorPinMismatch: "We couldn’t open a secure connection. Try again on another network.",
         errorTimeout: "The payment is still being processed. Check with the merchant before paying again.",
         errorChallengeUnavailable: "The bank authentication page could not be opened.",
+        errorChallengeCancelled: "Bank authentication was cancelled. Try again to complete the payment.",
         errorServer: "The payment couldn’t be completed. Try again.",
-        errorNotImplemented: "Wallet payments are not available yet."
+        errorNotImplemented: "Wallet payments are not available yet.",
+        challengeTitle: "Verify your card"
     )
 }

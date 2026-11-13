@@ -215,6 +215,7 @@ public struct PesaCheckoutError: Error, Equatable, Sendable, CustomStringConvert
         case timeout
         case pinMismatch = "pin_mismatch"
         case challengeUnavailable = "challenge_unavailable"
+        case challengeCancelled = "challenge_cancelled"
         case notImplemented = "not_implemented"
     }
 
