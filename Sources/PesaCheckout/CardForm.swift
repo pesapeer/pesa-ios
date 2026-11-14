@@ -15,19 +15,52 @@ public struct PesaCardTheme: Sendable {
     public var cornerRadius: CGFloat
     /// The surface of the saved-card list.
     public var listBackground: Color
+    /// The saved-card list as a box per row, `rowSpacing` apart, with the
+    /// card fields in a box of their own under "Use another card". One box
+    /// with hairlines between the rows when false.
+    public var separateRows: Bool
+    public var rowSpacing: CGFloat
+    /// The outline of the selected row while `separateRows` is on,
+    /// `selectedRowBorderWidth` wide; the row keeps `border` when nil.
+    public var selectedRowBorder: Color?
+    public var selectedRowBorderWidth: CGFloat
+    /// A saved card's brand on a white chip. The bare mark when false.
+    public var brandChip: Bool
+    /// "Use another card" above the saved cards rather than under them.
+    public var anotherCardFirst: Bool
+    /// A second line under "Use another card"; none when nil.
+    public var anotherCardSubtitle: String?
+    /// The SF Symbol at the start of "Use another card".
+    public var anotherCardSymbol: String
 
     public init(primary: Color = Color(red: 0x1c / 255, green: 0x3f / 255, blue: 0xaa / 255),
                 fieldBackground: Color = Color(.secondarySystemBackground),
                 border: Color = Color(.separator),
                 error: Color = Color(.systemRed),
                 cornerRadius: CGFloat = 10,
-                listBackground: Color = Color(.systemBackground)) {
+                listBackground: Color = Color(.systemBackground),
+                separateRows: Bool = false,
+                rowSpacing: CGFloat = 8,
+                selectedRowBorder: Color? = nil,
+                selectedRowBorderWidth: CGFloat = 1.5,
+                brandChip: Bool = true,
+                anotherCardFirst: Bool = false,
+                anotherCardSubtitle: String? = nil,
+                anotherCardSymbol: String = "plus") {
         self.primary = primary
         self.fieldBackground = fieldBackground
         self.border = border
         self.error = error
         self.cornerRadius = cornerRadius
         self.listBackground = listBackground
+        self.separateRows = separateRows
+        self.rowSpacing = rowSpacing
+        self.selectedRowBorder = selectedRowBorder
+        self.selectedRowBorderWidth = selectedRowBorderWidth
+        self.brandChip = brandChip
+        self.anotherCardFirst = anotherCardFirst
+        self.anotherCardSubtitle = anotherCardSubtitle
+        self.anotherCardSymbol = anotherCardSymbol
     }
 
     public static let pesa = PesaCardTheme()
@@ -293,28 +326,83 @@ public struct PesaCardForm: View {
         }
     }
 
-    private var savedCardPicker: some View {
-        let shape = RoundedRectangle(cornerRadius: theme.cornerRadius)
-        return VStack(alignment: .leading, spacing: 0) {
-            ForEach(state.savedCards, id: \.token) { card in
-                savedCardRow(card)
+    @ViewBuilder private var savedCardPicker: some View {
+        if theme.separateRows {
+            separatePicker
+        } else {
+            joinedPicker
+        }
+    }
+
+    /// The list as one box, with hairlines between its rows.
+    private var joinedPicker: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if theme.anotherCardFirst {
+                anotherCardRow
                 hairline
             }
-            pickerRow(selected: state.selectedSavedCard == nil, usable: true, label: strings.useAnotherCard,
-                      select: { state.select(nil) },
-                      leading: { Image(systemName: "plus").font(.system(size: 18, weight: .semibold)) },
-                      title: { Text(strings.useAnotherCard) },
-                      trailing: { EmptyView() })
-            if state.selectedSavedCard == nil {
-                typedCard.padding(EdgeInsets(top: 4, leading: 16, bottom: 16, trailing: 16))
-            } else if state.needsEmail {
-                emailField.padding(EdgeInsets(top: 4, leading: 16, bottom: 16, trailing: 16))
+            ForEach(Array(state.savedCards.enumerated()), id: \.element.token) { index, card in
+                if index > 0 { hairline }
+                savedCardRow(card)
+            }
+            if !theme.anotherCardFirst {
+                hairline
+                anotherCardRow
+            }
+            pickerFooter(topPadding: 4)
+        }
+        .modifier(ListBox(theme: theme, selected: false))
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: state.selectedSavedCard)
+    }
+
+    /// The list as a box per row, with the card fields in their own box
+    /// right under "Use another card".
+    private var separatePicker: some View {
+        VStack(alignment: .leading, spacing: theme.rowSpacing) {
+            if theme.anotherCardFirst { anotherCardAndFields }
+            ForEach(state.savedCards, id: \.token) { card in
+                savedCardRow(card)
+                    .modifier(ListBox(theme: theme, selected: state.selectedSavedCard?.token == card.token))
+            }
+            if !theme.anotherCardFirst { anotherCardAndFields }
+            if state.selectedSavedCard != nil && state.needsEmail {
+                pickerFooter(topPadding: 16).modifier(ListBox(theme: theme, selected: false))
             }
         }
-        .background(theme.listBackground)
-        .clipShape(shape)
-        .overlay(shape.stroke(theme.border, lineWidth: 1))
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: state.selectedSavedCard)
+    }
+
+    @ViewBuilder private var anotherCardAndFields: some View {
+        anotherCardRow.modifier(ListBox(theme: theme, selected: state.selectedSavedCard == nil))
+        if state.selectedSavedCard == nil {
+            pickerFooter(topPadding: 16).modifier(ListBox(theme: theme, selected: false))
+        }
+    }
+
+    private var anotherCardRow: some View {
+        pickerRow(selected: state.selectedSavedCard == nil, usable: true, label: strings.useAnotherCard,
+                  select: { state.select(nil) },
+                  leading: { Image(systemName: theme.anotherCardSymbol).font(.system(size: 18, weight: .semibold)) },
+                  title: {
+                      VStack(alignment: .leading, spacing: 2) {
+                          Text(strings.useAnotherCard)
+                          if let subtitle = theme.anotherCardSubtitle {
+                              Text(subtitle).font(.footnote).foregroundColor(.secondary)
+                          }
+                      }
+                  },
+                  trailing: { EmptyView() })
+    }
+
+    /// What sits under the rows: the card fields for "Use another card",
+    /// or the email field for a saved card that needs one.
+    @ViewBuilder private func pickerFooter(topPadding: CGFloat) -> some View {
+        let inset = EdgeInsets(top: topPadding, leading: 16, bottom: 16, trailing: 16)
+        if state.selectedSavedCard == nil {
+            typedCard.padding(inset)
+        } else if state.needsEmail {
+            emailField.padding(inset)
+        }
     }
 
     private var hairline: some View {
@@ -385,10 +473,15 @@ public struct PesaCardForm: View {
         .opacity(usable ? 1 : 0.45)
     }
 
-    /// The brand on a white chip, so it reads the same on a dark surface.
+    /// The brand on a white chip, so it reads the same on a dark surface;
+    /// the bare mark when the theme turns the chip off.
     @ViewBuilder private func brandChip(_ brand: CardBrand) -> some View {
         if brand == .unknown {
             Image(systemName: "creditcard").foregroundColor(.secondary)
+        } else if !theme.brandChip {
+            Text(Self.brandMark(brand))
+                .font(.system(size: 12, weight: .black))
+                .foregroundColor(Self.brandInk(brand))
         } else {
             Text(Self.brandMark(brand))
                 .font(.system(size: 9, weight: .black))
@@ -450,6 +543,23 @@ public struct PesaCardForm: View {
             }
         }
         .accessibilityElement(children: .contain)
+    }
+}
+
+/// The saved-card list's surface: one box, outlined with the theme's
+/// selected-row border when `selected`, else its border.
+private struct ListBox: ViewModifier {
+    let theme: PesaCardTheme
+    let selected: Bool
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: theme.cornerRadius)
+        let highlight = selected ? theme.selectedRowBorder : nil
+        return content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.listBackground)
+            .clipShape(shape)
+            .overlay(shape.stroke(highlight ?? theme.border, lineWidth: highlight == nil ? 1 : theme.selectedRowBorderWidth))
     }
 }
 

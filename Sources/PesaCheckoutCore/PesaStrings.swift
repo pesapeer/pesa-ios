@@ -62,8 +62,16 @@ public struct PesaStrings: Equatable, Sendable {
     public var errorChallengeCancelled: String
     public var errorServer: String
     public var errorNotImplemented: String
-    /// The title of the in-app 3-D Secure page.
-    public var challengeTitle: String
+    /// What VoiceOver calls the in-app 3-D Secure page, which has no title
+    /// of its own.
+    public var challengeLabel: String
+    /// Shown on the 3-D Secure page until the bank's page has loaded.
+    public var challengeConnecting: String
+    /// Asked when the customer closes the 3-D Secure page, with its two
+    /// answers.
+    public var challengeCancelQuestion: String
+    public var challengeCancel: String
+    public var challengeKeepGoing: String
 
     public static let all: [PesaStrings] = [.en, .fr, .frCA, .zhHans]
 

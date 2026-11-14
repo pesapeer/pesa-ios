@@ -48,6 +48,10 @@ extension PesaStrings {
         errorChallengeCancelled: "银行验证已取消，请重试以完成付款。",
         errorServer: "无法完成付款，请重试。",
         errorNotImplemented: "暂不支持钱包支付。",
-        challengeTitle: "验证您的卡"
+        challengeLabel: "银行验证",
+        challengeConnecting: "正在连接您的银行…",
+        challengeCancelQuestion: "取消此次付款？",
+        challengeCancel: "取消付款",
+        challengeKeepGoing: "继续"
     )
 }

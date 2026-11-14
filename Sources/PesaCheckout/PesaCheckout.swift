@@ -24,16 +24,20 @@ public final class PesaCheckout {
     public let client: PesaCheckoutClient
     private let challenge: PesaChallengePresenter & ChallengeDismissing
 
-    public init(configuration: PesaCheckoutConfiguration = .init(), challenge surface: PesaChallengeSurface = .inApp) {
+    /// The in-app 3-D Secure page has a close button and no title, since
+    /// the bank's page has its own heading; `challengeTitle` gives it one.
+    public init(configuration: PesaCheckoutConfiguration = .init(), challenge surface: PesaChallengeSurface = .inApp,
+                challengeTitle: String? = nil) {
         client = PesaCheckoutClient(configuration: configuration)
         switch surface {
-        case .inApp: challenge = WebViewChallengeOpener(locale: configuration.locale)
+        case .inApp: challenge = WebViewChallengeOpener(locale: configuration.locale, title: challengeTitle)
         case .browser: challenge = SafariChallengeOpener()
         }
     }
 
-    public static func configure(_ configuration: PesaCheckoutConfiguration, challenge surface: PesaChallengeSurface = .inApp) {
-        shared = PesaCheckout(configuration: configuration, challenge: surface)
+    public static func configure(_ configuration: PesaCheckoutConfiguration, challenge surface: PesaChallengeSurface = .inApp,
+                                 challengeTitle: String? = nil) {
+        shared = PesaCheckout(configuration: configuration, challenge: surface, challengeTitle: challengeTitle)
     }
 
     /// Charges the card and follows it to an outcome; the bank's challenge,
@@ -87,21 +91,25 @@ protocol ChallengeDismissing: AnyObject {
 
 /// Presents the 3-D Secure challenge in a full-screen `WKWebView`. Only
 /// `http(s)` loads; the checkout's return page, or the bounce to the app's
-/// own scheme, ends it. The close button is a cancel.
+/// own scheme, ends it. The close button asks before it cancels.
 @MainActor
 public final class WebViewChallengeOpener: PesaChallengePresenter, ChallengeDismissing {
     public var presenter: UIViewController?
     private let locale: String?
+    private let title: String?
     private weak var page: ChallengeViewController?
 
-    public init(locale: String? = nil) {
+    /// `title` is the page's title; none by default, since the bank's page
+    /// has its own heading.
+    public init(locale: String? = nil, title: String? = nil) {
         self.locale = locale
+        self.title = title
     }
 
     public func open(_ url: URL, onCancelled: @escaping @Sendable () -> Void) async -> Bool {
         guard url.scheme == "https", let host = presenter ?? Self.topViewController() else { return false }
         dismiss()
-        let page = ChallengeViewController(url: url, title: PesaStrings.resolve(locale).challengeTitle, onCancelled: onCancelled)
+        let page = ChallengeViewController(url: url, title: title, strings: PesaStrings.resolve(locale), onCancelled: onCancelled)
         let nav = UINavigationController(rootViewController: page)
         nav.modalPresentationStyle = .fullScreen
         self.page = page
@@ -125,20 +133,26 @@ public final class WebViewChallengeOpener: PesaChallengePresenter, ChallengeDism
     }
 }
 
-/// The page that hosts the challenge.
+/// The page that hosts the challenge. Its bar holds a close button and,
+/// only when the host gave one, a title. Until the bank's page has loaded
+/// the page says it is connecting; after that everything on it is the
+/// bank's.
 @MainActor
 final class ChallengeViewController: UIViewController, WKNavigationDelegate {
     private let url: URL
     private let returnPath: String
+    private let strings: PesaStrings
     private let onCancelled: @Sendable () -> Void
     private var done = false
     private var web: WKWebView!
+    private let connecting = UILabel()
     private let progress = UIProgressView(progressViewStyle: .bar)
     private var progressObservation: NSKeyValueObservation?
 
-    init(url: URL, title: String, onCancelled: @escaping @Sendable () -> Void) {
+    init(url: URL, title: String?, strings: PesaStrings, onCancelled: @escaping @Sendable () -> Void) {
         self.url = url
         self.returnPath = challengeReturnPath(for: url)
+        self.strings = strings
         self.onCancelled = onCancelled
         super.init(nibName: nil, bundle: nil)
         self.title = title
@@ -150,12 +164,22 @@ final class ChallengeViewController: UIViewController, WKNavigationDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
-        navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(closeTapped))
+        let close = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(closeTapped))
+        close.accessibilityLabel = strings.challengeCancel
+        navigationItem.leftBarButtonItem = close
 
         web = WKWebView(frame: view.bounds, configuration: WKWebViewConfiguration())
         web.navigationDelegate = self
         web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(web)
+
+        connecting.frame = view.bounds
+        connecting.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        connecting.text = strings.challengeConnecting
+        connecting.textAlignment = .center
+        connecting.textColor = .label
+        connecting.backgroundColor = .systemBackground
+        view.addSubview(connecting)
 
         progress.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(progress)
@@ -173,11 +197,28 @@ final class ChallengeViewController: UIViewController, WKNavigationDelegate {
         web.load(URLRequest(url: url))
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // The page has no title to read out, so it is named here.
+        if title == nil { UIAccessibility.post(notification: .screenChanged, argument: strings.challengeLabel) }
+    }
+
+    /// Leaving cancels the payment, so the customer is asked first.
     @objc private func closeTapped() {
+        guard !done else { return }
+        let question = UIAlertController(title: strings.challengeCancelQuestion, message: nil, preferredStyle: .alert)
+        question.addAction(UIAlertAction(title: strings.challengeKeepGoing, style: .cancel))
+        question.addAction(UIAlertAction(title: strings.challengeCancel, style: .destructive) { [weak self] _ in
+            Task { @MainActor in self?.cancelledByCustomer() }
+        })
+        present(question, animated: true)
+    }
+
+    private func cancelledByCustomer() {
         guard !done else { return }
         done = true
         let cancelled = onCancelled
-        dismiss(animated: true) { cancelled() }
+        leave { cancelled() }
     }
 
     /// The checkout settled the attempt, or the issuer sent the cardholder
@@ -185,7 +226,18 @@ final class ChallengeViewController: UIViewController, WKNavigationDelegate {
     func endedByCheckout() {
         guard !done else { return }
         done = true
-        dismiss(animated: true)
+        leave()
+    }
+
+    /// Dismisses from the presenter, so a question still on screen goes
+    /// with the page.
+    private func leave(completion: (() -> Void)? = nil) {
+        let presenter = navigationController?.presentingViewController ?? presentingViewController
+        presenter?.dismiss(animated: true, completion: completion)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        connecting.removeFromSuperview()
     }
 
     private func isReturn(_ target: URL) -> Bool {

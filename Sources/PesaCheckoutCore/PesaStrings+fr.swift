@@ -48,6 +48,10 @@ extension PesaStrings {
         errorChallengeCancelled: "L’authentification bancaire a été annulée. Réessayez pour finaliser le paiement.",
         errorServer: "Le paiement n’a pas pu aboutir. Réessayez.",
         errorNotImplemented: "Les paiements par portefeuille ne sont pas encore disponibles.",
-        challengeTitle: "Vérifiez votre carte"
+        challengeLabel: "Vérification bancaire",
+        challengeConnecting: "Connexion à votre banque…",
+        challengeCancelQuestion: "Annuler ce paiement ?",
+        challengeCancel: "Annuler le paiement",
+        challengeKeepGoing: "Continuer"
     )
 }

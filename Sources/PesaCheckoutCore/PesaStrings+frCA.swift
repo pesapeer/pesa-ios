@@ -7,6 +7,7 @@ extension PesaStrings {
         s.email = "Courriel pour votre reçu"
         s.emailPlaceholder = "vous@exemple.ca"
         s.emailInvalid = "Saisissez une adresse courriel."
+        s.challengeCancelQuestion = "Annuler ce paiement?"
         return s
     }()
 }

@@ -23,7 +23,9 @@ use the same flow and the same error codes.
 4. The SDK posts the card to `checkout.pesa.co` and polls the result.
    When the issuer asks for 3-D Secure, the SDK shows the challenge in a
    full-screen web view inside the app and closes it when the attempt
-   settles. The customer never leaves. The SDK returns a `CheckoutResult`.
+   settles. The customer never leaves. The page has a close button and
+   no title; pass `challengeTitle:` for one. Closing asks "Cancel this
+   payment?" first. The SDK returns a `CheckoutResult`.
    Pass `challenge: .browser` to `PesaCheckout` or `configure` for
    `SFSafariViewController` instead; your universal link then brings the
    customer back through `handle(url:)`.
@@ -134,6 +136,12 @@ hairlines between the rows.
   follow dark mode; `listBackground` is the list's surface and `border`
   its outline and hairlines. The brand chip stays white so the marks read
   on any surface.
+- The same theme lays the list out. `separateRows` draws a box per row,
+  `rowSpacing` apart, with the card fields in their own box under "Use
+  another card"; `selectedRowBorder` outlines the selected row.
+  `brandChip: false` shows the bare brand mark. `anotherCardFirst` moves
+  "Use another card" above the saved cards, `anotherCardSubtitle` gives
+  it a second line and `anotherCardSymbol` its SF Symbol.
 - Brand names from the gateway are read in any case, with or without
   spaces, `_` or `-`. `mc`, `americanexpress`, `cup` and `chinaunionpay`
   are understood (`CardBrand.parse`).

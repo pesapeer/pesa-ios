@@ -47,6 +47,10 @@ extension PesaStrings {
         errorChallengeCancelled: "Bank authentication was cancelled. Try again to complete the payment.",
         errorServer: "The payment couldn’t be completed. Try again.",
         errorNotImplemented: "Wallet payments are not available yet.",
-        challengeTitle: "Verify your card"
+        challengeLabel: "Bank verification",
+        challengeConnecting: "Connecting to your bank…",
+        challengeCancelQuestion: "Cancel this payment?",
+        challengeCancel: "Cancel payment",
+        challengeKeepGoing: "Keep going"
     )
 }
